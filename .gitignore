@@ -23,3 +23,11 @@ Thumbs.db
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+
+# Python build/cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+*.egg-info/
