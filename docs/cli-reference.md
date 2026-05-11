@@ -8,6 +8,12 @@ Short alias:
 csk
 ```
 
+Local web UI:
+
+```bash
+csk-web
+```
+
 Global options must come before the command:
 
 ```bash
@@ -96,3 +102,22 @@ csk doctor --scan
 ```
 
 `--scan` looks for sensitive-looking patterns outside `auth*` files.
+
+## web UI
+
+Start a local browser UI:
+
+```bash
+csk-web
+csk-web --port 8787
+csk-web --codex-home /path/to/.codex
+csk-web --no-open
+```
+
+The UI is local-only by default:
+
+- binds to `127.0.0.1`
+- does not display API keys
+- can save provider snapshots under `~/.codex/session_keeper_profiles`
+- exports session packages under `~/.codex/session_keeper_exports`
+- can activate a saved provider snapshot before importing a session package

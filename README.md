@@ -69,10 +69,19 @@ csk import-sessions /path/to/codex-old-sessions-YYYYMMDD-HHMMSS
 csk doctor
 ```
 
+启动本地工具页面：
+
+```bash
+csk-web
+```
+
+默认只监听 `127.0.0.1:8765`。页面用于保存 provider 快照、导出源 provider 会话包、切换目标 provider、导入需要的会话。
+
 也可以不安装，直接运行：
 
 ```bash
 python -m codex_session_keeper status
+python -m codex_session_keeper.webapp
 ```
 
 ## 文档入口
@@ -82,6 +91,7 @@ python -m codex_session_keeper status
 - [跨设备速记版](docs/portable-cheatsheet.md)
 - [新设备导入旧会话，但继续使用新账号/新中转](docs/new-device-use-old-sessions.md)
 - [CLI Reference](docs/cli-reference.md)
+- [Web UI](docs/web-ui.md)
 
 ## 可直接使用的触发词
 

@@ -27,6 +27,7 @@ classifiers = [
 [project.scripts]
 codex-session-keeper = "codex_session_keeper.cli:main"
 csk = "codex_session_keeper.cli:main"
+csk-web = "codex_session_keeper.webapp:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
