@@ -1,0 +1,25 @@
+# Local Codex state and credentials
+.codex/
+auth.json
+auth*.json
+*.key
+*.pem
+*.env
+.env*
+
+# Backups produced by the scripts
+history_sync_backups/
+codex-old-sessions-*/
+backup-*/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs and databases
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
