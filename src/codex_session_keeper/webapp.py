@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -330,83 +330,83 @@ INDEX_HTML = r"""<!doctype html>
 <body>
   <header>
     <h1>Codex Session Keeper</h1>
-    <p>Local provider/session manager. Scan local Codex sessions, rebind session providers, export provider-specific packages, and import them on another device.</p>
+    <p>本地 provider / 会话管理器。扫描本地 Codex 会话、批量切换会话 provider、按 provider 导出会话包，并支持在其他设备导入。</p>
   </header>
   <main>
     <div class="stack">
       <section>
-        <h2>Current Provider</h2>
+        <h2>当前 Provider</h2>
         <div class="kv" id="current"></div>
         <div class="row" style="margin-top:12px">
-          <button class="secondary" onclick="refresh()">Refresh</button>
-          <button class="secondary" onclick="backup()">Backup state</button>
+          <button class="secondary" onclick="refresh()">刷新</button>
+          <button class="secondary" onclick="backup()">备份当前状态</button>
         </div>
       </section>
 
       <section>
-        <h2>Provider Snapshots</h2>
-        <label>Snapshot name<input id="profileName" placeholder="old-relay / new-relay" /></label>
-        <div class="row" style="margin-top:10px"><button onclick="saveProfile()">Save current provider</button></div>
+        <h2>Provider 快照</h2>
+        <label>快照名称<input id="profileName" placeholder="old-relay / new-relay" /></label>
+        <div class="row" style="margin-top:10px"><button onclick="saveProfile()">保存当前 provider</button></div>
         <div class="list" id="profiles" style="margin-top:12px"></div>
       </section>
 
       <section>
-        <h2>Provider Counts</h2>
+        <h2>Provider 分布</h2>
         <div id="counts" class="list"></div>
       </section>
     </div>
 
     <div class="stack">
       <section>
-        <h2>Rebind Sessions</h2>
+        <h2>批量切换会话 Provider</h2>
         <div class="grid">
-          <label>Source provider<select id="sourceProvider"></select></label>
-          <label>Target provider<input id="targetProvider" placeholder="custom / newapi / openai" /></label>
+          <label>源 provider<select id="sourceProvider"></select></label>
+          <label>目标 provider<input id="targetProvider" placeholder="custom / newapi / openai" /></label>
         </div>
         <div class="row" style="margin-top:10px">
-          <button class="secondary" onclick="dryRunMigrate()">Preview</button>
-          <button class="warn" onclick="migrateProvider()">Rebind all matching sessions</button>
+          <button class="secondary" onclick="dryRunMigrate()">预览</button>
+          <button class="warn" onclick="migrateProvider()">切换所有匹配会话</button>
         </div>
       </section>
 
       <section>
-        <h2>Export Sessions</h2>
+        <h2>导出会话</h2>
         <div class="grid">
-          <label>Provider to export<select id="exportProvider"></select></label>
-          <label>Rewrite provider in export<input id="rewriteProvider" placeholder="optional target provider" /></label>
+          <label>要导出的 provider<select id="exportProvider"></select></label>
+          <label>导出时改写为 provider<input id="rewriteProvider" placeholder="可选目标 provider" /></label>
         </div>
         <div class="row" style="margin-top:10px">
-          <button onclick="exportProvider()">Export provider package</button>
+          <button onclick="exportProvider()">导出 provider 会话包</button>
         </div>
       </section>
 
       <section>
-        <h2>Import Sessions</h2>
+        <h2>导入会话</h2>
         <div class="grid">
-          <label>Package path<input id="packagePath" placeholder="C:\path\to\provider-sessions-..." /></label>
-          <label>Bind imported sessions to<input id="importTargetProvider" placeholder="optional provider" /></label>
-          <label>session_index handling<select id="indexMode"><option value="append">append</option><option value="replace">replace</option><option value="skip">skip</option></select></label>
+          <label>会话包路径<input id="packagePath" placeholder="C:\path\to\provider-sessions-..." /></label>
+          <label>导入后绑定到 provider<input id="importTargetProvider" placeholder="可选 provider" /></label>
+          <label>session_index 处理方式<select id="indexMode"><option value="append">append</option><option value="replace">replace</option><option value="skip">skip</option></select></label>
         </div>
         <div class="row" style="margin-top:10px">
-          <button onclick="importPackage()">Import package</button>
-          <button class="secondary" onclick="copyCommand('codex resume')">Copy codex resume</button>
-          <button class="secondary" onclick="copyCommand('codex fork')">Copy codex fork</button>
+          <button onclick="importPackage()">导入会话包</button>
+          <button class="secondary" onclick="copyCommand('codex resume')">复制 codex resume</button>
+          <button class="secondary" onclick="copyCommand('codex fork')">复制 codex fork</button>
         </div>
       </section>
 
       <section>
-        <h2>Session Packages</h2>
+        <h2>会话包</h2>
         <div id="exports" class="list"></div>
       </section>
 
       <section>
-        <h2>Recent Sessions</h2>
+        <h2>最近会话</h2>
         <div id="sessions"></div>
       </section>
 
       <section>
-        <h2>Log</h2>
-        <div id="log">Ready.</div>
+        <h2>日志</h2>
+        <div id="log">就绪。</div>
       </section>
     </div>
   </main>
@@ -422,55 +422,55 @@ INDEX_HTML = r"""<!doctype html>
     }
     function providerOptions(includeAll = false) {
       const providers = Object.keys(state.provider_counts || {});
-      return (includeAll ? ['*'] : providers).concat(includeAll ? providers : []).map(p => `<option value="${esc(p)}">${esc(p)}${p === '*' ? ' - all providers' : ''}</option>`).join('');
+      return (includeAll ? ['*'] : providers).concat(includeAll ? providers : []).map(p => `<option value="${esc(p)}">${esc(p)}${p === '*' ? ' - 所有 provider' : ''}</option>`).join('');
     }
     async function refresh() {
       state = await api('/api/state');
       const c = state.current;
       document.getElementById('current').innerHTML = `
-        <div>Codex home</div><div class="path">${esc(state.codex_home)}</div>
+        <div>Codex 目录</div><div class="path">${esc(state.codex_home)}</div>
         <div>Provider</div><div><span class="pill">${esc(c.name)}</span></div>
-        <div>Model</div><div>${esc(c.model)}</div>
+        <div>模型</div><div>${esc(c.model)}</div>
         <div>Base URL</div><div class="path">${esc(c.base_url)}</div>
         <div>Wire API</div><div>${esc(c.wire_api)}</div>
-        <div>Total sessions</div><div>${state.session_total}</div>`;
+        <div>会话总数</div><div>${state.session_total}</div>`;
       document.getElementById('sourceProvider').innerHTML = providerOptions(false);
       document.getElementById('exportProvider').innerHTML = providerOptions(true);
-      document.getElementById('counts').innerHTML = Object.entries(state.provider_counts).map(([p, n]) => `<div class="item"><strong>${esc(p)}</strong><div>${n} sessions</div></div>`).join('');
-      document.getElementById('profiles').innerHTML = state.profiles.map(p => `<div class="item"><strong>${esc(p.name)} ${p.current ? '<span class="pill">current</span>' : ''}</strong><div class="path">${esc(p.base_url)}</div>${p.current ? '' : `<button class="secondary" onclick="activateProfile('${esc(p.name)}')">Activate config/auth</button>`}</div>`).join('');
-      document.getElementById('exports').innerHTML = state.exports.length ? state.exports.map(e => `<div class="item"><strong>${esc(e.name)}</strong><div>${esc(e.source_provider || 'unknown')} -> ${esc(e.target_provider || e.source_provider || 'unknown')} · ${e.session_count} sessions</div><div class="path">${esc(e.path)}</div><button class="secondary" onclick="usePackage('${esc(e.path).replaceAll("\\", "\\\\")}')">Use package</button></div>`).join('') : '<p>No packages yet.</p>';
-      document.getElementById('sessions').innerHTML = `<table><thead><tr><th>Provider</th><th>Thread</th><th>CWD</th><th>Updated</th></tr></thead><tbody>${state.sessions.slice(0, 80).map(s => `<tr><td>${esc(s.provider)}</td><td>${esc(s.thread_name || s.id)}</td><td class="path">${esc(s.cwd)}</td><td>${esc(s.updated_at || s.timestamp)}</td></tr>`).join('')}</tbody></table>`;
+      document.getElementById('counts').innerHTML = Object.entries(state.provider_counts).map(([p, n]) => `<div class="item"><strong>${esc(p)}</strong><div>${n} 个会话</div></div>`).join('');
+      document.getElementById('profiles').innerHTML = state.profiles.map(p => `<div class="item"><strong>${esc(p.name)} ${p.current ? '<span class="pill">current</span>' : ''}</strong><div class="path">${esc(p.base_url)}</div>${p.current ? '' : `<button class="secondary" onclick="activateProfile('${esc(p.name)}')">激活 config/auth</button>`}</div>`).join('');
+      document.getElementById('exports').innerHTML = state.exports.length ? state.exports.map(e => `<div class="item"><strong>${esc(e.name)}</strong><div>${esc(e.source_provider || 'unknown')} -> ${esc(e.target_provider || e.source_provider || 'unknown')} · ${e.session_count} 个会话</div><div class="path">${esc(e.path)}</div><button class="secondary" onclick="usePackage('${esc(e.path).replaceAll("\\", "\\\\")}')">使用这个包</button></div>`).join('') : '<p>暂无会话包。</p>';
+      document.getElementById('sessions').innerHTML = `<table><thead><tr><th>Provider</th><th>会话</th><th>工作目录</th><th>更新时间</th></tr></thead><tbody>${state.sessions.slice(0, 80).map(s => `<tr><td>${esc(s.provider)}</td><td>${esc(s.thread_name || s.id)}</td><td class="path">${esc(s.cwd)}</td><td>${esc(s.updated_at || s.timestamp)}</td></tr>`).join('')}</tbody></table>`;
     }
     async function saveProfile() {
       const name = document.getElementById('profileName').value.trim();
-      if (!name) return setLog('Enter a snapshot name.');
+      if (!name) return setLog('请输入快照名称。');
       const data = await api('/api/profile/save-current', {name});
-      setLog('Saved provider snapshot: ' + data.path);
+      setLog('已保存 provider 快照：' + data.path);
       await refresh();
     }
     async function activateProfile(name) {
       const data = await api('/api/profile/activate', {name});
-      setLog('Activated provider. Previous state backup: ' + data.backup);
+      setLog('已激活 provider。切换前备份：' + data.backup);
       await refresh();
     }
     async function backup() {
       const data = await api('/api/backup', {});
-      setLog('Backup created: ' + data.backup);
+      setLog('已创建备份：' + data.backup);
       await refresh();
     }
     async function dryRunMigrate() {
       const source_provider = document.getElementById('sourceProvider').value;
       const target_provider = document.getElementById('targetProvider').value.trim();
-      if (!source_provider || !target_provider) return setLog('Choose source and target provider.');
+      if (!source_provider || !target_provider) return setLog('请选择源 provider 和目标 provider。');
       const data = await api('/api/migrate-provider', {source_provider, target_provider, dry_run: true});
-      setLog(`Preview: ${data.matched} sessions match ${source_provider}; ${data.changed} would be rebound to ${target_provider}.`);
+      setLog(`预览：${data.matched} 个会话匹配 ${source_provider}；${data.changed} 个会话将切换到 ${target_provider}。`);
     }
     async function migrateProvider() {
       const source_provider = document.getElementById('sourceProvider').value;
       const target_provider = document.getElementById('targetProvider').value.trim();
-      if (!source_provider || !target_provider) return setLog('Choose source and target provider.');
+      if (!source_provider || !target_provider) return setLog('请选择源 provider 和目标 provider。');
       const data = await api('/api/migrate-provider', {source_provider, target_provider});
-      setLog(`Rebound ${data.changed} sessions from ${source_provider} to ${target_provider}.\nBackup: ${data.backup}`);
+      setLog(`已将 ${data.changed} 个会话从 ${source_provider} 切换到 ${target_provider}。\n备份：${data.backup}`);
       await refresh();
     }
     async function exportProvider() {
@@ -478,21 +478,21 @@ INDEX_HTML = r"""<!doctype html>
       const rewrite_provider = document.getElementById('rewriteProvider').value.trim();
       const data = await api('/api/export-provider', {provider, rewrite_provider});
       document.getElementById('packagePath').value = data.path;
-      setLog(`Exported ${data.session_count} sessions: ${data.path}`);
+      setLog(`已导出 ${data.session_count} 个会话：${data.path}`);
       await refresh();
     }
     async function importPackage() {
       const package_path = document.getElementById('packagePath').value.trim();
       const target_provider = document.getElementById('importTargetProvider').value.trim();
       const index_mode = document.getElementById('indexMode').value;
-      if (!package_path) return setLog('Enter package path.');
+      if (!package_path) return setLog('请输入会话包路径。');
       const data = await api('/api/import-package', {package_path, target_provider, index_mode});
-      setLog(`Imported ${data.imported} sessions.\nBackup: ${data.backup}\nNext: run codex resume or codex fork.`);
+      setLog(`已导入 ${data.imported} 个会话。\n备份：${data.backup}\n下一步：运行 codex resume 或 codex fork。`);
       await refresh();
     }
-    function usePackage(path) { document.getElementById('packagePath').value = path; setLog('Selected package: ' + path); }
-    async function copyCommand(cmd) { await navigator.clipboard.writeText(cmd); setLog('Copied: ' + cmd); }
-    refresh().catch(err => setLog('Load failed: ' + err.message));
+    function usePackage(path) { document.getElementById('packagePath').value = path; setLog('已选择会话包：' + path); }
+    async function copyCommand(cmd) { await navigator.clipboard.writeText(cmd); setLog('已复制：' + cmd); }
+    refresh().catch(err => setLog('加载失败：' + err.message));
   </script>
 </body>
 </html>
@@ -521,7 +521,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Start the Codex Session Keeper local web UI.")
     parser.add_argument("--host", default="127.0.0.1", help="Bind host. Defaults to 127.0.0.1.")
     parser.add_argument("--port", type=int, default=8765, help="Bind port. Defaults to 8765.")
-    parser.add_argument("--codex-home", type=Path, help="Codex home directory, defaults to CODEX_HOME or ~/.codex.")
+    parser.add_argument("--codex-home", type=Path, help="Codex 目录 directory, defaults to CODEX_HOME or ~/.codex.")
     parser.add_argument("--no-open", action="store_true", help="Do not open the browser automatically.")
     args = parser.parse_args(argv)
     return serve(args.host, args.port, args.codex_home, not args.no_open)
@@ -529,3 +529,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
