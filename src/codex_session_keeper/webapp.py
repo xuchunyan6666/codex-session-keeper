@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import threading
 import webbrowser
@@ -12,9 +11,16 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
-from .cli import codex_paths, count_session_files, latest_session, parse_simple_toml_values, stamp
+from .cli import codex_paths, parse_simple_toml_values, stamp
+from .sessions import (
+    export_provider_sessions,
+    import_session_package,
+    migrate_provider,
+    provider_counts,
+    scan_sessions,
+)
 
 
 def read_text(path: Path) -> str:
@@ -26,6 +32,11 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def safe_name(value: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in value.strip())
+    return cleaned.strip("-") or "profile"
+
+
 @dataclass(frozen=True)
 class ProviderProfile:
     name: str
@@ -35,8 +46,6 @@ class ProviderProfile:
     config_path: str
     auth_path: str
     current: bool
-    session_count: int
-    latest_session: str | None
 
 
 class KeeperState:
@@ -56,13 +65,10 @@ class KeeperState:
             config_path=str(self.paths.config),
             auth_path=str(self.paths.auth),
             current=True,
-            session_count=count_session_files(self.paths.sessions),
-            latest_session=str(latest_session(self.paths.sessions)) if latest_session(self.paths.sessions) else None,
         )
 
     def profiles(self) -> list[ProviderProfile]:
-        current = self.current_profile()
-        result = [current]
+        result = [self.current_profile()]
         if not self.profile_dir.exists():
             return result
         for path in sorted(self.profile_dir.glob("*.json")):
@@ -79,8 +85,6 @@ class KeeperState:
                     config_path=str(data.get("config_path") or ""),
                     auth_path=str(data.get("auth_path") or ""),
                     current=False,
-                    session_count=count_session_files(self.paths.sessions),
-                    latest_session=str(latest_session(self.paths.sessions)) if latest_session(self.paths.sessions) else None,
                 )
             )
         return result
@@ -145,54 +149,6 @@ class KeeperState:
         )
         return backup
 
-    def export_sessions(self, source_label: str, note: str = "") -> Path:
-        safe = safe_name(source_label or self.current_profile().name)
-        out = self.export_dir / f"{safe}-sessions-{stamp()}"
-        out.mkdir(parents=True, exist_ok=True)
-        if self.paths.sessions.exists():
-            shutil.copytree(self.paths.sessions, out / "sessions", dirs_exist_ok=True)
-        if self.paths.session_index.exists():
-            shutil.copy2(self.paths.session_index, out / "session_index.jsonl")
-        manifest = {
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-            "source_label": source_label,
-            "note": note,
-            "contains_auth_json": False,
-            "session_count": count_session_files(self.paths.sessions),
-        }
-        write_text(out / "manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
-        return out
-
-    def import_sessions(self, package_path: Path, target_profile: str = "", index_mode: str = "append") -> Path:
-        package = package_path.expanduser().resolve()
-        if not package.exists():
-            raise ValueError(f"Session package not found: {package}")
-        old_sessions = package / "sessions"
-        if not old_sessions.exists():
-            raise ValueError(f"Missing sessions directory: {old_sessions}")
-        backup = self.backup_current("before-web-import")
-        if target_profile:
-            self.activate_profile(target_profile)
-        self.paths.sessions.mkdir(parents=True, exist_ok=True)
-        for child in old_sessions.iterdir():
-            target = self.paths.sessions / child.name
-            if child.is_dir():
-                shutil.copytree(child, target, dirs_exist_ok=True)
-            else:
-                shutil.copy2(child, target)
-        old_index = package / "session_index.jsonl"
-        if old_index.exists() and index_mode != "skip":
-            if index_mode == "replace" or not self.paths.session_index.exists():
-                shutil.copy2(old_index, self.paths.session_index)
-            else:
-                with old_index.open("r", encoding="utf-8", errors="replace") as reader:
-                    with self.paths.session_index.open("a", encoding="utf-8") as writer:
-                        for line in reader:
-                            writer.write(line)
-                            if not line.endswith("\n"):
-                                writer.write("\n")
-        return backup
-
     def exports(self) -> list[dict[str, Any]]:
         if not self.export_dir.exists():
             return []
@@ -211,17 +167,36 @@ class KeeperState:
                 {
                     "path": str(path),
                     "name": path.name,
-                    "source_label": manifest.get("source_label", ""),
-                    "session_count": manifest.get("session_count", count_session_files(path / "sessions")),
+                    "source_provider": manifest.get("source_provider", ""),
+                    "target_provider": manifest.get("target_provider", ""),
+                    "session_count": manifest.get("session_count", 0),
                     "created_at": manifest.get("created_at", ""),
                 }
             )
         return result
 
-
-def safe_name(value: str) -> str:
-    cleaned = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in value.strip())
-    return cleaned.strip("-") or "profile"
+    def state_payload(self) -> dict[str, Any]:
+        sessions = scan_sessions(self.paths.home)
+        return {
+            "codex_home": str(self.paths.home),
+            "current": asdict(self.current_profile()),
+            "profiles": [asdict(p) for p in self.profiles()],
+            "provider_counts": provider_counts(sessions),
+            "sessions": [
+                {
+                    "id": s.id,
+                    "provider": s.provider,
+                    "cwd": s.cwd,
+                    "timestamp": s.timestamp,
+                    "updated_at": s.updated_at,
+                    "thread_name": s.thread_name,
+                    "path": str(s.path),
+                }
+                for s in sessions[:500]
+            ],
+            "session_total": len(sessions),
+            "exports": self.exports(),
+        }
 
 
 class KeeperHandler(BaseHTTPRequestHandler):
@@ -235,14 +210,7 @@ class KeeperHandler(BaseHTTPRequestHandler):
         if parsed.path == "/":
             self.send_html(INDEX_HTML)
         elif parsed.path == "/api/state":
-            self.send_json(
-                {
-                    "codex_home": str(self.state.paths.home),
-                    "current": asdict(self.state.current_profile()),
-                    "profiles": [asdict(p) for p in self.state.profiles()],
-                    "exports": self.state.exports(),
-                }
-            )
+            self.send_json(self.state.state_payload())
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -260,16 +228,29 @@ class KeeperHandler(BaseHTTPRequestHandler):
                 elif parsed.path == "/api/backup":
                     backup = self.state.backup_current("web-backup")
                     self.send_json({"ok": True, "backup": str(backup)})
-                elif parsed.path == "/api/export":
-                    out = self.state.export_sessions(str(body.get("source_label") or ""), str(body.get("note") or ""))
-                    self.send_json({"ok": True, "path": str(out)})
-                elif parsed.path == "/api/import":
-                    backup = self.state.import_sessions(
-                        Path(str(body.get("package_path") or "")),
-                        str(body.get("target_profile") or ""),
-                        str(body.get("index_mode") or "append"),
+                elif parsed.path == "/api/migrate-provider":
+                    result = migrate_provider(
+                        self.state.paths.home,
+                        str(body.get("source_provider") or ""),
+                        str(body.get("target_provider") or ""),
+                        dry_run=bool(body.get("dry_run")),
                     )
-                    self.send_json({"ok": True, "backup": str(backup)})
+                    self.send_json({"ok": True, **result})
+                elif parsed.path == "/api/export-provider":
+                    provider = str(body.get("provider") or "*")
+                    target = str(body.get("rewrite_provider") or "") or None
+                    safe = safe_name(provider if provider != "*" else "all")
+                    out = self.state.export_dir / f"{safe}-sessions-{stamp()}"
+                    manifest = export_provider_sessions(self.state.paths.home, provider, out, rewrite_provider=target)
+                    self.send_json({"ok": True, "path": str(out), **manifest})
+                elif parsed.path == "/api/import-package":
+                    result = import_session_package(
+                        self.state.paths.home,
+                        Path(str(body.get("package_path") or "")),
+                        target_provider=str(body.get("target_provider") or "") or None,
+                        index_mode=str(body.get("index_mode") or "append"),
+                    )
+                    self.send_json({"ok": True, **result})
                 else:
                     self.send_error(HTTPStatus.NOT_FOUND)
         except Exception as exc:
@@ -279,8 +260,7 @@ class KeeperHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("content-length") or "0")
         if length <= 0:
             return {}
-        raw = self.rfile.read(length)
-        return json.loads(raw.decode("utf-8"))
+        return json.loads(self.rfile.read(length).decode("utf-8"))
 
     def send_json(self, payload: dict[str, Any], status: int = 200) -> None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -300,14 +280,13 @@ class KeeperHandler(BaseHTTPRequestHandler):
 
 
 INDEX_HTML = r"""<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Codex Session Keeper</title>
   <style>
     :root {
-      color-scheme: light;
       --bg: #f6f7f9;
       --panel: #ffffff;
       --text: #1f2933;
@@ -316,315 +295,204 @@ INDEX_HTML = r"""<!doctype html>
       --accent: #0f766e;
       --accent-strong: #115e59;
       --warn: #9f580a;
-      --danger: #b42318;
       --code: #eef2f6;
     }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-    }
-    header {
-      padding: 20px 28px 12px;
-      border-bottom: 1px solid var(--border);
-      background: var(--panel);
-    }
+    body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    header { padding: 20px 28px 12px; border-bottom: 1px solid var(--border); background: var(--panel); }
     h1 { margin: 0 0 6px; font-size: 24px; letter-spacing: 0; }
     h2 { margin: 0 0 12px; font-size: 16px; letter-spacing: 0; }
     p { color: var(--muted); line-height: 1.5; margin: 0; }
-    main {
-      display: grid;
-      grid-template-columns: minmax(280px, 360px) minmax(420px, 1fr);
-      gap: 18px;
-      padding: 18px;
-    }
-    section {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 16px;
-    }
+    main { display: grid; grid-template-columns: 360px minmax(520px, 1fr); gap: 18px; padding: 18px; }
+    section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
     .stack { display: grid; gap: 14px; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
     label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
-    input, select, textarea {
-      width: 100%;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 9px 10px;
-      font: inherit;
-      background: #fff;
-      color: var(--text);
-    }
-    textarea { min-height: 76px; resize: vertical; }
-    button {
-      border: 1px solid var(--accent);
-      background: var(--accent);
-      color: white;
-      border-radius: 6px;
-      padding: 9px 12px;
-      font: inherit;
-      cursor: pointer;
-    }
-    button.secondary {
-      background: #fff;
-      color: var(--accent-strong);
-    }
-    button.warn {
-      border-color: var(--warn);
-      background: var(--warn);
-    }
+    input, select { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 9px 10px; font: inherit; background: #fff; color: var(--text); }
+    button { border: 1px solid var(--accent); background: var(--accent); color: white; border-radius: 6px; padding: 9px 12px; font: inherit; cursor: pointer; }
+    button.secondary { background: #fff; color: var(--accent-strong); }
+    button.warn { border-color: var(--warn); background: var(--warn); }
     .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .kv {
-      display: grid;
-      grid-template-columns: 116px minmax(0, 1fr);
-      gap: 6px 10px;
-      font-size: 13px;
-    }
+    .kv { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 6px 10px; font-size: 13px; }
     .kv div:nth-child(odd) { color: var(--muted); }
-    code, .path {
-      background: var(--code);
-      border-radius: 5px;
-      padding: 2px 5px;
-      overflow-wrap: anywhere;
-    }
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 3px 8px;
-      font-size: 12px;
-      color: var(--muted);
-      background: #fff;
-    }
-    .list {
-      display: grid;
-      gap: 8px;
-      max-height: 300px;
-      overflow: auto;
-    }
-    .item {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px;
-      display: grid;
-      gap: 6px;
-    }
+    .path, code { background: var(--code); border-radius: 5px; padding: 2px 5px; overflow-wrap: anywhere; }
+    .pill { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; font-size: 12px; color: var(--muted); background: #fff; }
+    .list { display: grid; gap: 8px; max-height: 330px; overflow: auto; }
+    .item { border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: grid; gap: 6px; }
     .item strong { font-size: 14px; }
-    #log {
-      min-height: 80px;
-      white-space: pre-wrap;
-      color: var(--muted);
-      font-size: 13px;
-    }
-    @media (max-width: 900px) {
-      main { grid-template-columns: 1fr; }
-      .grid { grid-template-columns: 1fr; }
-    }
+    #log { min-height: 80px; white-space: pre-wrap; color: var(--muted); font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border-bottom: 1px solid var(--border); padding: 7px; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; }
+    @media (max-width: 940px) { main { grid-template-columns: 1fr; } .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <header>
     <h1>Codex Session Keeper</h1>
-    <p>本地工具页。选择源 provider 的会话包，切到目标 provider 后导入。不会展示 API key。</p>
+    <p>Local provider/session manager. Scan local Codex sessions, rebind session providers, export provider-specific packages, and import them on another device.</p>
   </header>
   <main>
     <div class="stack">
       <section>
-        <h2>当前状态</h2>
+        <h2>Current Provider</h2>
         <div class="kv" id="current"></div>
         <div class="row" style="margin-top:12px">
-          <button class="secondary" onclick="refresh()">刷新</button>
-          <button class="secondary" onclick="backup()">备份当前状态</button>
+          <button class="secondary" onclick="refresh()">Refresh</button>
+          <button class="secondary" onclick="backup()">Backup state</button>
         </div>
       </section>
 
       <section>
-        <h2>Provider 快照</h2>
-        <label>
-          快照名称
-          <input id="profileName" placeholder="old-relay / new-relay" />
-        </label>
-        <div class="row" style="margin-top:10px">
-          <button onclick="saveProfile()">保存当前 provider</button>
-        </div>
+        <h2>Provider Snapshots</h2>
+        <label>Snapshot name<input id="profileName" placeholder="old-relay / new-relay" /></label>
+        <div class="row" style="margin-top:10px"><button onclick="saveProfile()">Save current provider</button></div>
         <div class="list" id="profiles" style="margin-top:12px"></div>
+      </section>
+
+      <section>
+        <h2>Provider Counts</h2>
+        <div id="counts" class="list"></div>
       </section>
     </div>
 
     <div class="stack">
       <section>
-        <h2>1. 从源 provider 备份会话包</h2>
+        <h2>Rebind Sessions</h2>
         <div class="grid">
-          <label>
-            源 provider 标签
-            <input id="sourceLabel" placeholder="old-relay" />
-          </label>
-          <label>
-            备注
-            <input id="exportNote" placeholder="before switching to new relay" />
-          </label>
+          <label>Source provider<select id="sourceProvider"></select></label>
+          <label>Target provider<input id="targetProvider" placeholder="custom / newapi / openai" /></label>
         </div>
         <div class="row" style="margin-top:10px">
-          <button onclick="exportSessions()">导出当前会话包</button>
+          <button class="secondary" onclick="dryRunMigrate()">Preview</button>
+          <button class="warn" onclick="migrateProvider()">Rebind all matching sessions</button>
         </div>
       </section>
 
       <section>
-        <h2>2. 切到目标 provider</h2>
-        <p>选择已保存的 provider 快照，会先自动备份当前状态，再替换 config/auth。</p>
-        <div class="row" style="margin-top:10px">
-          <select id="targetProfile"></select>
-          <button class="warn" onclick="activateSelected()">切到目标 provider</button>
-        </div>
-      </section>
-
-      <section>
-        <h2>3. 导入需要用的会话</h2>
+        <h2>Export Sessions</h2>
         <div class="grid">
-          <label>
-            会话包路径
-            <input id="packagePath" placeholder="C:\path\to\old-relay-sessions-..." />
-          </label>
-          <label>
-            session_index 处理
-            <select id="indexMode">
-              <option value="append">append - 追加</option>
-              <option value="replace">replace - 替换</option>
-              <option value="skip">skip - 跳过</option>
-            </select>
-          </label>
+          <label>Provider to export<select id="exportProvider"></select></label>
+          <label>Rewrite provider in export<input id="rewriteProvider" placeholder="optional target provider" /></label>
         </div>
         <div class="row" style="margin-top:10px">
-          <button onclick="importSessions()">导入到当前/目标 provider</button>
-          <button class="secondary" onclick="copyCommand('codex resume')">复制 resume 命令</button>
-          <button class="secondary" onclick="copyCommand('codex fork')">复制 fork 命令</button>
+          <button onclick="exportProvider()">Export provider package</button>
         </div>
       </section>
 
       <section>
-        <h2>会话包</h2>
-        <div class="list" id="exports"></div>
+        <h2>Import Sessions</h2>
+        <div class="grid">
+          <label>Package path<input id="packagePath" placeholder="C:\path\to\provider-sessions-..." /></label>
+          <label>Bind imported sessions to<input id="importTargetProvider" placeholder="optional provider" /></label>
+          <label>session_index handling<select id="indexMode"><option value="append">append</option><option value="replace">replace</option><option value="skip">skip</option></select></label>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button onclick="importPackage()">Import package</button>
+          <button class="secondary" onclick="copyCommand('codex resume')">Copy codex resume</button>
+          <button class="secondary" onclick="copyCommand('codex fork')">Copy codex fork</button>
+        </div>
       </section>
 
       <section>
-        <h2>日志</h2>
+        <h2>Session Packages</h2>
+        <div id="exports" class="list"></div>
+      </section>
+
+      <section>
+        <h2>Recent Sessions</h2>
+        <div id="sessions"></div>
+      </section>
+
+      <section>
+        <h2>Log</h2>
         <div id="log">Ready.</div>
       </section>
     </div>
   </main>
   <script>
     let state = null;
-
-    function setLog(message) {
-      document.getElementById('log').textContent = message;
-    }
-
+    const esc = (value) => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    function setLog(message) { document.getElementById('log').textContent = message; }
     async function api(path, body) {
-      const res = await fetch(path, {
-        method: body ? 'POST' : 'GET',
-        headers: body ? {'content-type': 'application/json'} : {},
-        body: body ? JSON.stringify(body) : undefined
-      });
+      const res = await fetch(path, { method: body ? 'POST' : 'GET', headers: body ? {'content-type':'application/json'} : {}, body: body ? JSON.stringify(body) : undefined });
       const data = await res.json();
       if (!res.ok || data.ok === false) throw new Error(data.error || res.statusText);
       return data;
     }
-
+    function providerOptions(includeAll = false) {
+      const providers = Object.keys(state.provider_counts || {});
+      return (includeAll ? ['*'] : providers).concat(includeAll ? providers : []).map(p => `<option value="${esc(p)}">${esc(p)}${p === '*' ? ' - all providers' : ''}</option>`).join('');
+    }
     async function refresh() {
       state = await api('/api/state');
       const c = state.current;
       document.getElementById('current').innerHTML = `
-        <div>Codex home</div><div class="path">${state.codex_home}</div>
-        <div>Provider</div><div><span class="pill">${c.name}</span></div>
-        <div>Model</div><div>${c.model}</div>
-        <div>Base URL</div><div class="path">${c.base_url}</div>
-        <div>Wire API</div><div>${c.wire_api}</div>
-        <div>Sessions</div><div>${c.session_count}</div>
-        <div>Latest</div><div class="path">${c.latest_session || 'none'}</div>
-      `;
-      const profiles = document.getElementById('profiles');
-      profiles.innerHTML = state.profiles.map(p => `
-        <div class="item">
-          <strong>${p.name} ${p.current ? '<span class="pill">current</span>' : ''}</strong>
-          <div class="path">${p.base_url}</div>
-          <div class="row">
-            ${p.current ? '' : `<button class="secondary" onclick="activateProfile('${p.name.replaceAll("'", "\\'")}')">激活</button>`}
-          </div>
-        </div>
-      `).join('');
-      const target = document.getElementById('targetProfile');
-      target.innerHTML = '<option value="">当前 provider</option>' + state.profiles.filter(p => !p.current).map(p => `<option value="${p.name}">${p.name}</option>`).join('');
-      const exportsEl = document.getElementById('exports');
-      exportsEl.innerHTML = state.exports.length ? state.exports.map(e => `
-        <div class="item">
-          <strong>${e.name}</strong>
-          <div>source: ${e.source_label || 'unknown'} · sessions: ${e.session_count}</div>
-          <div class="path">${e.path}</div>
-          <button class="secondary" onclick="usePackage('${e.path.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}')">使用这个包</button>
-        </div>
-      `).join('') : '<p>暂无会话包。</p>';
+        <div>Codex home</div><div class="path">${esc(state.codex_home)}</div>
+        <div>Provider</div><div><span class="pill">${esc(c.name)}</span></div>
+        <div>Model</div><div>${esc(c.model)}</div>
+        <div>Base URL</div><div class="path">${esc(c.base_url)}</div>
+        <div>Wire API</div><div>${esc(c.wire_api)}</div>
+        <div>Total sessions</div><div>${state.session_total}</div>`;
+      document.getElementById('sourceProvider').innerHTML = providerOptions(false);
+      document.getElementById('exportProvider').innerHTML = providerOptions(true);
+      document.getElementById('counts').innerHTML = Object.entries(state.provider_counts).map(([p, n]) => `<div class="item"><strong>${esc(p)}</strong><div>${n} sessions</div></div>`).join('');
+      document.getElementById('profiles').innerHTML = state.profiles.map(p => `<div class="item"><strong>${esc(p.name)} ${p.current ? '<span class="pill">current</span>' : ''}</strong><div class="path">${esc(p.base_url)}</div>${p.current ? '' : `<button class="secondary" onclick="activateProfile('${esc(p.name)}')">Activate config/auth</button>`}</div>`).join('');
+      document.getElementById('exports').innerHTML = state.exports.length ? state.exports.map(e => `<div class="item"><strong>${esc(e.name)}</strong><div>${esc(e.source_provider || 'unknown')} -> ${esc(e.target_provider || e.source_provider || 'unknown')} · ${e.session_count} sessions</div><div class="path">${esc(e.path)}</div><button class="secondary" onclick="usePackage('${esc(e.path).replaceAll("\\", "\\\\")}')">Use package</button></div>`).join('') : '<p>No packages yet.</p>';
+      document.getElementById('sessions').innerHTML = `<table><thead><tr><th>Provider</th><th>Thread</th><th>CWD</th><th>Updated</th></tr></thead><tbody>${state.sessions.slice(0, 80).map(s => `<tr><td>${esc(s.provider)}</td><td>${esc(s.thread_name || s.id)}</td><td class="path">${esc(s.cwd)}</td><td>${esc(s.updated_at || s.timestamp)}</td></tr>`).join('')}</tbody></table>`;
     }
-
     async function saveProfile() {
       const name = document.getElementById('profileName').value.trim();
-      if (!name) return setLog('请输入快照名称。');
+      if (!name) return setLog('Enter a snapshot name.');
       const data = await api('/api/profile/save-current', {name});
-      setLog('已保存 provider 快照：' + data.path);
+      setLog('Saved provider snapshot: ' + data.path);
       await refresh();
     }
-
     async function activateProfile(name) {
       const data = await api('/api/profile/activate', {name});
-      setLog('已切换 provider，切换前备份：' + data.backup);
+      setLog('Activated provider. Previous state backup: ' + data.backup);
       await refresh();
     }
-
-    async function activateSelected() {
-      const name = document.getElementById('targetProfile').value;
-      if (!name) return setLog('目标为当前 provider，无需切换。');
-      await activateProfile(name);
-    }
-
     async function backup() {
       const data = await api('/api/backup', {});
-      setLog('已备份当前状态：' + data.backup);
+      setLog('Backup created: ' + data.backup);
       await refresh();
     }
-
-    async function exportSessions() {
-      const source_label = document.getElementById('sourceLabel').value.trim() || state.current.name;
-      const note = document.getElementById('exportNote').value.trim();
-      const data = await api('/api/export', {source_label, note});
-      setLog('已导出会话包：' + data.path);
+    async function dryRunMigrate() {
+      const source_provider = document.getElementById('sourceProvider').value;
+      const target_provider = document.getElementById('targetProvider').value.trim();
+      if (!source_provider || !target_provider) return setLog('Choose source and target provider.');
+      const data = await api('/api/migrate-provider', {source_provider, target_provider, dry_run: true});
+      setLog(`Preview: ${data.matched} sessions match ${source_provider}; ${data.changed} would be rebound to ${target_provider}.`);
+    }
+    async function migrateProvider() {
+      const source_provider = document.getElementById('sourceProvider').value;
+      const target_provider = document.getElementById('targetProvider').value.trim();
+      if (!source_provider || !target_provider) return setLog('Choose source and target provider.');
+      const data = await api('/api/migrate-provider', {source_provider, target_provider});
+      setLog(`Rebound ${data.changed} sessions from ${source_provider} to ${target_provider}.\nBackup: ${data.backup}`);
+      await refresh();
+    }
+    async function exportProvider() {
+      const provider = document.getElementById('exportProvider').value;
+      const rewrite_provider = document.getElementById('rewriteProvider').value.trim();
+      const data = await api('/api/export-provider', {provider, rewrite_provider});
       document.getElementById('packagePath').value = data.path;
+      setLog(`Exported ${data.session_count} sessions: ${data.path}`);
       await refresh();
     }
-
-    async function importSessions() {
+    async function importPackage() {
       const package_path = document.getElementById('packagePath').value.trim();
-      if (!package_path) return setLog('请输入会话包路径。');
-      const target_profile = document.getElementById('targetProfile').value;
+      const target_provider = document.getElementById('importTargetProvider').value.trim();
       const index_mode = document.getElementById('indexMode').value;
-      const data = await api('/api/import', {package_path, target_profile, index_mode});
-      setLog('已导入。导入前备份：' + data.backup + '\n下一步：运行 codex resume 或 codex fork。');
+      if (!package_path) return setLog('Enter package path.');
+      const data = await api('/api/import-package', {package_path, target_provider, index_mode});
+      setLog(`Imported ${data.imported} sessions.\nBackup: ${data.backup}\nNext: run codex resume or codex fork.`);
       await refresh();
     }
-
-    function usePackage(path) {
-      document.getElementById('packagePath').value = path;
-      setLog('已选择会话包：' + path);
-    }
-
-    async function copyCommand(cmd) {
-      await navigator.clipboard.writeText(cmd);
-      setLog('已复制命令：' + cmd);
-    }
-
-    refresh().catch(err => setLog('加载失败：' + err.message));
+    function usePackage(path) { document.getElementById('packagePath').value = path; setLog('Selected package: ' + path); }
+    async function copyCommand(cmd) { await navigator.clipboard.writeText(cmd); setLog('Copied: ' + cmd); }
+    refresh().catch(err => setLog('Load failed: ' + err.message));
   </script>
 </body>
 </html>

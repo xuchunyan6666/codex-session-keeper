@@ -121,7 +121,7 @@ def parse_simple_toml_values(config: Path) -> dict[str, str]:
         return values
     current_section = ""
     for raw in config.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = raw.strip()
+        line = raw.lstrip("\ufeff").strip()
         if not line or line.startswith("#"):
             continue
         if line.startswith("[") and line.endswith("]"):

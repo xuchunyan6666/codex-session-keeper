@@ -75,7 +75,7 @@ csk doctor
 csk-web
 ```
 
-默认只监听 `127.0.0.1:8765`。页面用于保存 provider 快照、导出源 provider 会话包、切换目标 provider、导入需要的会话。
+默认只监听 `127.0.0.1:8765`。页面用于扫描本地会话的 provider 绑定、批量重绑 provider、按 provider 导出会话包、在导入时绑定到目标 provider。
 
 也可以不安装，直接运行：
 

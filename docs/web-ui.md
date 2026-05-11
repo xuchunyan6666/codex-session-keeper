@@ -1,6 +1,6 @@
 # Web UI
 
-`csk-web` starts a local tool page for managing provider snapshots and session packages.
+`csk-web` starts a local tool page for managing Codex session provider bindings and portable session packages.
 
 ```bash
 csk-web
@@ -14,12 +14,13 @@ http://127.0.0.1:8765
 
 ## Workflow
 
-1. Open the page and check the current Codex provider.
-2. Save the current provider snapshot, for example `old-relay`.
-3. Export the current sessions with a source label.
-4. Activate a target provider snapshot, for example `new-relay`.
-5. Import the session package into the current or selected target provider.
-6. Run `codex resume` or `codex fork`.
+1. Open the page and scan local sessions grouped by `model_provider`.
+2. Save current provider config/auth snapshots if you want one-click switching later.
+3. Rebind all sessions from one provider to another, with a preview first.
+4. Export sessions for one provider or all providers.
+5. Optionally rewrite the provider while exporting, so the package is ready for another device.
+6. Import a package on another device and bind imported sessions to the current provider.
+7. Run `codex resume` or `codex fork`.
 
 ## What Provider Snapshots Contain
 
@@ -37,6 +38,20 @@ auth.json
 ```
 
 Because `auth.json` may contain credentials, keep this directory private.
+
+## Provider Binding
+
+The UI reads each session file's first `session_meta` JSON line and uses:
+
+```text
+payload.model_provider
+```
+
+When you rebind sessions, only that provider field is changed. Matching session files are backed up first under:
+
+```text
+~/.codex/history_sync_backups
+```
 
 ## What Session Packages Contain
 
@@ -62,4 +77,5 @@ They intentionally do not contain `auth.json`.
 - The UI does not display API keys.
 - Activating a provider snapshot backs up current auth/config/session state first.
 - Importing sessions backs up current state first.
-- Session files are not transformed; they are copied into the current Codex home.
+- Rebinding sessions backs up matching session files first.
+- Export/import can rewrite `payload.model_provider` when requested.
