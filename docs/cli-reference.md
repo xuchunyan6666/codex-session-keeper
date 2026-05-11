@@ -24,6 +24,8 @@ csk status
 csk status --check-login
 ```
 
+`csk status` does not read or print API keys. `--check-login` runs `codex login status`, which may print Codex's own masked key prefix/suffix.
+
 Shows:
 
 - Codex home

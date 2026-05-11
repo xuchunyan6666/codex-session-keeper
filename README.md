@@ -43,6 +43,8 @@ pip install -e .
 csk status
 ```
 
+如果显式加 `--check-login`，工具会调用 `codex login status`，Codex 可能显示脱敏后的 key 前后缀。
+
 切换 key / 中转前备份：
 
 ```bash
