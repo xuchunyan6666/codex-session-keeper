@@ -24,7 +24,15 @@ grep -RInE "sk-|cr_|OPENAI_API_KEY|api[_-]?key|token|secret" .
 - 常见错误和修复方式
 - 不同中转 provider 的通用配置注意点
 - 更安全的备份/恢复脚本
+- CLI 命令、测试和打包改进
 - 英文版或其他语言翻译
+
+## 本地测试
+
+```bash
+python -m pytest
+python -m codex_session_keeper status --codex-home /path/to/test/.codex
+```
 
 ## 写作风格
 

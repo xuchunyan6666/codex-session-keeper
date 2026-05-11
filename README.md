@@ -1,6 +1,6 @@
 # Codex Session Keeper
 
-一份关于 **Codex CLI / Codex Desktop 切换 API key、中转 provider，并继续使用本地历史会话** 的实战指南。
+一份关于 **Codex CLI / Codex Desktop 切换 API key、中转 provider，并继续使用本地历史会话** 的实战指南和小工具。
 
 The guide explains how to switch API keys or relay providers in Codex while preserving local session history.
 
@@ -29,12 +29,57 @@ Codex 的本地状态通常分成几类：
 
 切换 key 或中转后，本地会话文件通常仍然可用。后续请求走哪个 key / relay，取决于当前的 `auth.json` 和 `config.toml`。
 
-## 快速入口
+## CLI 工具
+
+安装本地开发版：
+
+```bash
+pip install -e .
+```
+
+查看当前 Codex 状态，不打印密钥：
+
+```bash
+csk status
+```
+
+切换 key / 中转前备份：
+
+```bash
+csk backup
+```
+
+只导出会话，不带 `auth.json`：
+
+```bash
+csk export-sessions
+```
+
+在新设备导入旧会话，保留当前新设备的 `auth.json` 和 `config.toml`：
+
+```bash
+csk import-sessions /path/to/codex-old-sessions-YYYYMMDD-HHMMSS
+```
+
+检查结构并给出下一步建议：
+
+```bash
+csk doctor
+```
+
+也可以不安装，直接运行：
+
+```bash
+python -m codex_session_keeper status
+```
+
+## 文档入口
 
 - [同一台设备：老中转会话迁移到新中转继续使用](docs/same-device-old-relay-to-new-relay.md)
 - [切换账号/中转并保留会话](docs/switch-account-keep-session.md)
 - [跨设备速记版](docs/portable-cheatsheet.md)
 - [新设备导入旧会话，但继续使用新账号/新中转](docs/new-device-use-old-sessions.md)
+- [CLI Reference](docs/cli-reference.md)
 
 ## 可直接使用的触发词
 
@@ -49,7 +94,7 @@ Codex 的本地状态通常分成几类：
 不要打印任何 API key。
 ```
 
-## 脚本
+## Shell 脚本
 
 Windows PowerShell：
 
